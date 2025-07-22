@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    /* body要素のスタイル設定 */
+    body { background: #000; color: #fff; text-align: center; font-family: sans-serif; }
+    /* canvas要素のスタイル設定 */
+    canvas { background: #111; display: block; margin: 20px auto; }
+    /* input要素とbutton要素のスタイル設定 */
+    input, button { margin: 10px; }
+  </style>
+</head>
+<body>
+  <input type="file" accept=".mp3, .m4a, audio/*">
+  <br>
+  <button id="stopRecording" disabled>録画停止 & 保存</button>
+  <canvas id="visualizer" width="800" height="400"></canvas>
+
+  <script>
+    // HTML要素の取得
+    const canvas = document.getElementById('visualizer');
+    const ctx = canvas.getContext('2d');
+    const fileInput = document.querySelector('input');
+    const stopBtn = document.getElementById('stopRecording');
+
+    // グローバル変数定義
+    let audioContext;    // AudioContextオブジェクト
+    let source;          // 音源ノード
+    let analyser;        // 音声データを分析するアナライザーノード
+    let dataArray;       // 周波数データを格納する配列
+    let waveformArray;   // 波形データを格納する配列
+    let bufferLength;    // アナライザーのデータバッファ長
+    let mediaRecorder;   // メディアレコーダーオブジェクト
+    let recordedChunks = []; // 録画されたデータを格納する配列
+    let drawAnimation;   // 描画アニメーションのID
+    let audioDest;       // 録音と再生のためのオーディオ出力先
+
+    // ファイル入力イベントリスナー
+    fileInput.addEventListener('change', async function () {
+      const file = this.files[0]; // 選択されたファイルを取得
+      if (!file) return; // ファイルが選択されていなければ処理を中断
+
+      // 既存のAudioContextがあればクリーンアップ
+      if (audioContext) {
+        audioContext.close(); // AudioContextを閉じる
+        cancelAnimationFrame(drawAnimation); // 描画アニメーションをキャンセル
+        source = null; // ソースをクリア
+      }
+
+      // 新しいAudioContextを作成
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      // アナライザーノードを作成
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048; // FFTサイズを設定
+      bufferLength = analyser.frequencyBinCount; // 周波数データの配列長を設定
+      dataArray = new Uint8Array(bufferLength); // 周波数データ用のUint8Arrayを作成
+      waveformArray = new Uint8Array(analyser.fftSize); // 波形データ用のUint8Arrayを作成
+      audioDest = audioContext.createMediaStreamDestination(); // 録音用のオーディオ出力先を作成
+
+      const reader = new FileReader(); // FileReaderオブジェクトを作成
+
+      // ファイル読み込み完了時のイベントハンドラー
+      reader.onload = async function (e) {
+        try {
+          // 音声データをデコード
+          const audioBuffer = await audioContext.decodeAudioData(e.target.result);
+
+          // BufferSourceNodeを作成し、デコードしたオーディオバッファを設定
+          source = audioContext.createBufferSource();
+          source.buffer = audioBuffer;
+
+          // ノードの接続: source -> analyser -> (audioDest (録音用) AND audioContext.destination (再生用))
+          source.connect(analyser); // ソースをアナライザーに接続
+          analyser.connect(audioDest); // アナライザーを録音用出力先に接続
+          analyser.connect(audioContext.destination); // アナライザーを再生用出力先に接続
+
+          // 音声再生の直前に録音を開始
+          startRecord();
+          source.start(); // 音声再生を開始
+
+          // ビジュアライザーの描画を開始
+          draw();
+
+          // 音声再生終了時に録音を停止
+          source.onended = () => {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+              mediaRecorder.stop(); // 録音を停止
+              stopBtn.disabled = true; // 停止ボタンを無効化
+            }
+            cancelAnimationFrame(drawAnimation); // ビジュアライゼーションを停止
+          };
+
+        } catch (error) {
+          console.error('音声データのデコードエラー:', error);
+          alert('音声ファイルのデコードに失敗しました。別のファイルをお試しください。');
+          stopBtn.disabled = true; // エラー発生時も停止ボタンを無効化
+        }
+      };
+
+      reader.readAsArrayBuffer(file); // ファイルをArrayBufferとして読み込み
+    });
+
+    // ビジュアライザーの描画関数
+    function draw() {
+      if (!analyser) return; // アナライザーが存在しない場合は描画を中断
+
+      drawAnimation = requestAnimationFrame(draw); // 次の描画フレームを要求
+
+      // 周波数データと波形データを取得
+      analyser.getByteFrequencyData(dataArray);
+      analyser.getByteTimeDomainData(waveformArray);
+
+      // キャンバスをクリア
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // === 軸の描画 ===
+      ctx.strokeStyle = '#444';
+      ctx.lineWidth = 1;
+
+      // 周波数データ（0-255）のY軸ラベル
+      for (let i = 0; i <= 5; i++) {
+        const y = (canvas.height / 5) * i;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+
+        ctx.fillStyle = '#ccc';
+        ctx.font = '12px sans-serif';
+        // 255から0まで値を表示
+        ctx.fillText(`${255 - i * 51}`, 5, y + 10); // 配置を調整
+      }
+
+      // 周波数（Hz）のX軸ラベル
+      ctx.fillStyle = '#ccc';
+      ctx.font = '12px sans-serif';
+      if (audioContext && audioContext.sampleRate) {
+          const nyquist = audioContext.sampleRate / 2; // ナイキスト周波数
+          const steps = 10; // ステップ数
+          for (let i = 0; i <= steps; i++) {
+              const x = (canvas.width / steps) * i;
+              const freq = Math.floor((i / steps) * nyquist); // 周波数を計算
+              ctx.fillText(`${freq}Hz`, x + 5, canvas.height - 5);
+          }
+      }
+
+      // === スペクトルの描画 ===
+      const barWidth = (canvas.width / bufferLength) * 2.5; // バーの幅を計算
+      let x = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        const barHeight = dataArray[i]; // バーの高さを周波数データから取得
+        ctx.fillStyle = `rgb(${barHeight + 100}, ${i * 2}, 150)`; // 色を設定
+        ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight); // バーを描画
+        x += barWidth + 1; // 次のバーの位置を計算
+      }
+
+      // === 波形の描画 ===
+      ctx.beginPath();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'lime'; // 波形の色を設定
+      const sliceWidth = canvas.width * 1.0 / waveformArray.length; // スライスの幅を計算
+      let xx = 0;
+      for (let i = 0; i < waveformArray.length; i++) {
+        const v = waveformArray[i] / 128.0; // 0-2の範囲に正規化（データは0-255、128が中間点）
+        const y = v * canvas.height / 2; // キャンバスの高さに合わせてスケーリング
+
+        if (i === 0) {
+          ctx.moveTo(xx, y); // 最初の点に移動
+        } else {
+          ctx.lineTo(xx, y); // 線を引く
+        }
+        xx += sliceWidth;
+      }
+      ctx.lineTo(canvas.width, canvas.height / 2); // 右端の中間点まで線を引く
+      ctx.stroke(); // 波形を描画
+    }
+
+    // 録画開始関数
+    function startRecord() {
+      recordedChunks = []; // 録画データをクリア
+
+      const canvasStream = canvas.captureStream(60); // キャンバスからストリームをキャプチャ（60 FPSでよりスムーズな動画に）
+      // キャンバスのビデオトラックとオーディオ出力先のオーディオトラックを結合したストリームを作成
+      const combinedStream = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...audioDest.stream.getAudioTracks()
+      ]);
+
+      // より広くサポートされているmimeTypeを使用（video/mp4で問題がある場合）
+      // "video/mp4" (H.264) のブラウザ互換性を確認
+      let mimeType = 'video/webm; codecs=vp9';
+      if (MediaRecorder.isTypeSupported('video/mp4')) {
+          mimeType = 'video/mp4';
+      } else if (MediaRecorder.isTypeSupported('video/webm; codecs=vp8')) {
+          mimeType = 'video/webm; codecs=vp8';
+      }
+      console.log(`使用するMIMEタイプ: ${mimeType}`);
+
+      // MediaRecorderを作成
+      mediaRecorder = new MediaRecorder(combinedStream, { mimeType: mimeType });
+
+      // データが利用可能になった時のイベントハンドラー
+      mediaRecorder.ondataavailable = function (e) {
+        if (e.data.size > 0) {
+          recordedChunks.push(e.data); // データを記録済みチャンクに追加
+        }
+      };
+
+      // 録画停止時のイベントハンドラー
+      mediaRecorder.onstop = function () {
+        if (recordedChunks.length === 0) {
+            console.warn("録画データがありません。");
+            alert("動画データが記録されませんでした。録画が速すぎたか、MediaRecorderに問題があった可能性があります。");
+            return;
+        }
+        // 記録されたチャンクからBlobを作成（MediaRecorderが実際に使用したmimeTypeを使用）
+        const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType });
+        const url = URL.createObjectURL(blob); // BlobからURLを作成
+        const a = document.createElement("a"); // a要素を作成
+        a.style.display = "none";
+        a.href = url;
+        a.download = "visualizer_recording.mp4"; // 拡張子は.mp4を推奨（実際のタイプはwebmかもしれません）
+        document.body.appendChild(a);
+        a.click(); // ダウンロードを開始
+        // クリーンアップ
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url); // URLを解放
+        }, 100);
+      };
+
+      // MediaRecorderのエラーハンドラー
+      mediaRecorder.onerror = function(event) {
+        console.error("MediaRecorderエラー:", event.error);
+        alert(`録画エラー: ${event.error.name} - ${event.error.message}`);
+        stopBtn.disabled = true; // エラー発生時は停止ボタンを無効化
+      };
+
+      mediaRecorder.start(); // 録画を開始
+      stopBtn.disabled = false; // 停止ボタンを有効化
+      console.log("録画を開始しました...");
+    }
+
+    // 停止ボタンのイベントリスナー
+    stopBtn.addEventListener('click', () => {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop(); // 録画を停止
+        stopBtn.disabled = true; // 停止ボタンを無効化
+        cancelAnimationFrame(drawAnimation); // 録画停止時にビジュアライゼーションを停止
+      }
+    });
+
+    // ユーザーの操作でAudioContextを再開
+    document.body.addEventListener('click', () => {
+      if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume(); // AudioContextを再開
+      }
+    });
+  </script>
+</body>
+</html>
