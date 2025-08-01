@@ -28,7 +28,6 @@
     let audioContext;    // AudioContextオブジェクト
     let source;          // 音源ノード
     let analyser;        // 音声データを分析するアナライザーノード
-    let dataArray;       // 周波数データを格納する配列
     let waveformArray;   // 波形データを格納する配列
     let bufferLength;    // アナライザーのデータバッファ長
     let mediaRecorder;   // メディアレコーダーオブジェクト
@@ -53,8 +52,6 @@
       // アナライザーノードを作成
       analyser = audioContext.createAnalyser();
       analyser.fftSize = 2048; // FFTサイズを設定
-      bufferLength = analyser.frequencyBinCount; // 周波数データの配列長を設定
-      dataArray = new Uint8Array(bufferLength); // 周波数データ用のUint8Arrayを作成
       waveformArray = new Uint8Array(analyser.fftSize); // 波形データ用のUint8Arrayを作成
       audioDest = audioContext.createMediaStreamDestination(); // 録音用のオーディオ出力先を作成
 
@@ -107,8 +104,7 @@
 
       drawAnimation = requestAnimationFrame(draw); // 次の描画フレームを要求
 
-      // 周波数データと波形データを取得
-      analyser.getByteFrequencyData(dataArray);
+      // 波形データを取得
       analyser.getByteTimeDomainData(waveformArray);
 
       // キャンバスをクリア
@@ -118,43 +114,6 @@
       // === 軸の描画 ===
       ctx.strokeStyle = '#444';
       ctx.lineWidth = 1;
-
-      // 周波数データ（0-255）のY軸ラベル
-      for (let i = 0; i <= 5; i++) {
-        const y = (canvas.height / 5) * i;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(canvas.width, y);
-        ctx.stroke();
-
-        ctx.fillStyle = '#ccc';
-        ctx.font = '12px sans-serif';
-        // 255から0まで値を表示
-        ctx.fillText(`${255 - i * 51}`, 5, y + 10); // 配置を調整
-      }
-
-      // 周波数（Hz）のX軸ラベル
-      /*ctx.fillStyle = '#ccc';
-      ctx.font = '12px sans-serif';
-      if (audioContext && audioContext.sampleRate) {
-          const nyquist = audioContext.sampleRate / 2; // ナイキスト周波数
-          const steps = 10; // ステップ数
-          for (let i = 0; i <= steps; i++) {
-              const x = (canvas.width / steps) * i;
-              const freq = Math.floor((i / steps) * nyquist); // 周波数を計算
-              ctx.fillText(`${freq}Hz`, x + 5, canvas.height - 5);
-          }
-      }*/
-
-      // === スペクトルの描画 ===
-      /*const barWidth = (canvas.width / bufferLength) * 2.5; // バーの幅を計算
-      let x = 0;
-      for (let i = 0; i < bufferLength; i++) {
-        const barHeight = dataArray[i]; // バーの高さを周波数データから取得
-        ctx.fillStyle = `rgb(${barHeight + 100}, ${i * 2}, 150)`; // 色を設定
-        ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight); // バーを描画
-        x += barWidth + 1; // 次のバーの位置を計算
-      }*/
 
       // === 波形の描画 ===
       ctx.beginPath();
