@@ -28,13 +28,14 @@
     let audioContext;    // AudioContextオブジェクト
     let source;          // 音源ノード
     let analyser;        // 音声データを分析するアナライザーノード
-    let dataArray;       // 周波数データを格納する配列
     let waveformArray;   // 波形データを格納する配列
     let bufferLength;    // アナライザーのデータバッファ長
     let mediaRecorder;   // メディアレコーダーオブジェクト
     let recordedChunks = []; // 録画されたデータを格納する配列
     let drawAnimation;   // 描画アニメーションのID
     let audioDest;       // 録音と再生のためのオーディオ出力先
+    let startTime;       // 音声再生開始時間
+    let audioBufferDuration; // ロードされた音声の長さ
 
     // ファイル入力イベントリスナー
     fileInput.addEventListener('change', async function () {
@@ -54,7 +55,6 @@
       analyser = audioContext.createAnalyser();
       analyser.fftSize = 2048; // FFTサイズを設定
       bufferLength = analyser.frequencyBinCount; // 周波数データの配列長を設定
-      dataArray = new Uint8Array(bufferLength); // 周波数データ用のUint8Arrayを作成
       waveformArray = new Uint8Array(analyser.fftSize); // 波形データ用のUint8Arrayを作成
       audioDest = audioContext.createMediaStreamDestination(); // 録音用のオーディオ出力先を作成
 
@@ -65,6 +65,7 @@
         try {
           // 音声データをデコード
           const audioBuffer = await audioContext.decodeAudioData(e.target.result);
+          audioBufferDuration = audioBuffer.duration; // 音声の長さを保存
 
           // BufferSourceNodeを作成し、デコードしたオーディオバッファを設定
           source = audioContext.createBufferSource();
@@ -77,6 +78,7 @@
 
           // 音声再生の直前に録音を開始
           startRecord();
+          startTime = audioContext.currentTime; // 再生開始時間を記録
           source.start(); // 音声再生を開始
 
           // ビジュアライザーの描画を開始
@@ -103,13 +105,17 @@
 
     // ビジュアライザーの描画関数
     function draw() {
-      if (!analyser) return; // アナライザーが存在しない場合は描画を中断
+      if (!analyser || !source || audioContext.currentTime - startTime > audioBufferDuration + 0.5) { // 0.5秒の許容誤差
+        // 音声が終了した、またはアナライザーがない場合は描画を停止
+        cancelAnimationFrame(drawAnimation);
+        return;
+      }
 
       drawAnimation = requestAnimationFrame(draw); // 次の描画フレームを要求
 
       // 周波数データと波形データを取得
-      analyser.getByteFrequencyData(dataArray);
-      analyser.getByteTimeDomainData(waveformArray);
+      analyser.getByteFrequencyData(waveformArray); // 周波数データもwaveformArrayに取得
+      analyser.getByteTimeDomainData(waveformArray); // 波形データをwaveformArrayに上書き
 
       // キャンバスをクリア
       ctx.fillStyle = '#000';
@@ -132,6 +138,7 @@
         // 255から0まで値を表示
         ctx.fillText(`${255 - i * 51}`, 5, y + 10); // 配置を調整
       }
+
 
       // 周波数（Hz）のX軸ラベル
       ctx.fillStyle = '#ccc';
@@ -175,6 +182,11 @@
       }
       ctx.lineTo(canvas.width, canvas.height / 2); // 右端の中間点まで線を引く
       ctx.stroke(); // 波形を描画
+
+      // **重要: 経過時間に基づいて描画を調整する（オプション）**
+      // これを直接視覚化に反映させるのは難しいですが、デバッグ目的でログに出力できます。
+      const elapsed = audioContext.currentTime - startTime;
+      // console.log(`Elapsed Audio Time: ${elapsed.toFixed(2)}s`);
     }
 
     // 録画開始関数
@@ -190,11 +202,11 @@
 
       // より広くサポートされているmimeTypeを使用（video/mp4で問題がある場合）
       // "video/mp4" (H.264) のブラウザ互換性を確認
-      let mimeType = 'video/webm; codecs=vp9';
+      let mimeType = 'video/webm; codecs=vp9,opus'; // Opus codec for audio
       if (MediaRecorder.isTypeSupported('video/mp4')) {
-          mimeType = 'video/mp4';
-      } else if (MediaRecorder.isTypeSupported('video/webm; codecs=vp8')) {
-          mimeType = 'video/webm; codecs=vp8';
+          mimeType = 'video/mp4'; // This usually implies H.264 video and AAC audio
+      } else if (MediaRecorder.isTypeSupported('video/webm; codecs=vp8,opus')) {
+          mimeType = 'video/webm; codecs=vp8,opus';
       }
       console.log(`使用するMIMEタイプ: ${mimeType}`);
 
@@ -221,7 +233,16 @@
         const a = document.createElement("a"); // a要素を作成
         a.style.display = "none";
         a.href = url;
-        a.download = "visualizer_recording.mp4"; // 拡張子は.mp4を推奨（実際のタイプはwebmかもしれません）
+        // ダウンロードファイル名に実際のmimeTypeの拡張子を反映させる
+        let downloadFileName = "visualizer_recording";
+        if (mediaRecorder.mimeType.includes('mp4')) {
+          downloadFileName += '.mp4';
+        } else if (mediaRecorder.mimeType.includes('webm')) {
+          downloadFileName += '.webm';
+        } else {
+          downloadFileName += '.unknown'; // フォールバック
+        }
+        a.download = downloadFileName;
         document.body.appendChild(a);
         a.click(); // ダウンロードを開始
         // クリーンアップ
@@ -238,6 +259,10 @@
         stopBtn.disabled = true; // エラー発生時は停止ボタンを無効化
       };
 
+      // ここで MediaRecorder.start() に duration を指定することで、
+      // 録画の最大時間をオーディオの長さに合わせることができます。
+      // ただし、これにより録画がオーディオの終了よりも早く停止する可能性もあります。
+      // 最も確実なのは `source.onended` で `mediaRecorder.stop()` を呼び出すことです。
       mediaRecorder.start(); // 録画を開始
       stopBtn.disabled = false; // 停止ボタンを有効化
       console.log("録画を開始しました...");
