@@ -23,7 +23,7 @@
     const ctx = canvas.getContext('2d');
     const fileInput = document.querySelector('input');
     const stopBtn = document.getElementById('stopRecording');
-
+    
     // グローバル変数定義
     let audioContext;    // AudioContextオブジェクト
     let source;          // 音源ノード
@@ -134,7 +134,7 @@
       }
 
       // 周波数（Hz）のX軸ラベル
-      ctx.fillStyle = '#ccc';
+      /*ctx.fillStyle = '#ccc';
       ctx.font = '12px sans-serif';
       if (audioContext && audioContext.sampleRate) {
           const nyquist = audioContext.sampleRate / 2; // ナイキスト周波数
@@ -144,17 +144,17 @@
               const freq = Math.floor((i / steps) * nyquist); // 周波数を計算
               ctx.fillText(`${freq}Hz`, x + 5, canvas.height - 5);
           }
-      }
+      }*/
 
       // === スペクトルの描画 ===
-      const barWidth = (canvas.width / bufferLength) * 2.5; // バーの幅を計算
+      /*const barWidth = (canvas.width / bufferLength) * 2.5; // バーの幅を計算
       let x = 0;
       for (let i = 0; i < bufferLength; i++) {
         const barHeight = dataArray[i]; // バーの高さを周波数データから取得
         ctx.fillStyle = `rgb(${barHeight + 100}, ${i * 2}, 150)`; // 色を設定
         ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight); // バーを描画
         x += barWidth + 1; // 次のバーの位置を計算
-      }
+      }*/
 
       // === 波形の描画 ===
       ctx.beginPath();
