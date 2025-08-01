@@ -36,6 +36,7 @@
     let audioDest;       // 録音と再生のためのオーディオ出力先
     let startTime;       // 音声再生開始時間
     let audioBufferDuration; // ロードされた音声の長さ
+    let dataArray;       // 周波数データを格納する配列
 
     // ファイル入力イベントリスナー
     fileInput.addEventListener('change', async function () {
@@ -55,6 +56,7 @@
       analyser = audioContext.createAnalyser();
       analyser.fftSize = 2048; // FFTサイズを設定
       bufferLength = analyser.frequencyBinCount; // 周波数データの配列長を設定
+      dataArray = new Uint8Array(bufferLength); // 周波数データ用のUint8Arrayを作成
       waveformArray = new Uint8Array(analyser.fftSize); // 波形データ用のUint8Arrayを作成
       audioDest = audioContext.createMediaStreamDestination(); // 録音用のオーディオ出力先を作成
 
@@ -112,10 +114,10 @@
       }
 
       drawAnimation = requestAnimationFrame(draw); // 次の描画フレームを要求
-
+      
       // 周波数データと波形データを取得
-      analyser.getByteFrequencyData(waveformArray); // 周波数データもwaveformArrayに取得
-      analyser.getByteTimeDomainData(waveformArray); // 波形データをwaveformArrayに上書き
+      analyser.getByteFrequencyData(dataArray);
+      analyser.getByteTimeDomainData(waveformArray);
 
       // キャンバスをクリア
       ctx.fillStyle = '#000';
