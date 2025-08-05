@@ -159,10 +159,6 @@
       ctx.lineTo(canvas.width, canvas.height / 2); // 右端の中間点まで線を引く
       ctx.stroke(); // 波形を描画
 
-      // **重要: 経過時間に基づいて描画を調整する（オプション）**
-      // これを直接視覚化に反映させるのは難しいですが、デバッグ目的でログに出力できます。
-      const elapsed = audioContext.currentTime - startTime;
-      // console.log(`Elapsed Audio Time: ${elapsed.toFixed(2)}s`);
     }
 
     // 録画開始関数
@@ -235,10 +231,6 @@
         stopBtn.disabled = true; // エラー発生時は停止ボタンを無効化
       };
 
-      // ここで MediaRecorder.start() に duration を指定することで、
-      // 録画の最大時間をオーディオの長さに合わせることができます。
-      // ただし、これにより録画がオーディオの終了よりも早く停止する可能性もあります。
-      // 最も確実なのは `source.onended` で `mediaRecorder.stop()` を呼び出すことです。
       mediaRecorder.start(); // 録画を開始
       stopBtn.disabled = false; // 停止ボタンを有効化
       console.log("録画を開始しました...");
